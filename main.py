@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-import threading # ضروري للفصل
+import threading
 
 def log(msg):
     print(msg, flush=True)
@@ -19,16 +19,24 @@ except Exception as e:
 
 app = Flask('')
 
-# جلب الإعدادات
-GEMINI_KEY = os.environ.get('GEMINI_KEY')
+# جلب الإعدادات - تأكد من وجودها في Render Dashboard -> Environment
+GEMINI_KEY = os.environ.get('GEMINI_KEY') or os.environ.get('GOOGLE_API_KEY')
 TELE_TOKEN = os.environ.get('TELE_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
 
-genai.configure(api_key=GEMINI_KEY)
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
-bot = telebot.TeleBot(TELE_TOKEN)
+# فحص وجود المفاتيح قبل البدء
+if not GEMINI_KEY or not TELE_TOKEN:
+    log("❌ خطأ: لم يتم العثور على المفاتيح (GEMINI_KEY أو TELE_TOKEN) في الإعدادات!")
+    sys.exit(1)
 
-# دالة التحليل التي ستعمل في الخلفية
+# إعداد Gemini
+try:
+    genai.configure(api_key=GEMINI_KEY)
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    bot = telebot.TeleBot(TELE_TOKEN)
+except Exception as e:
+    log(f"❌ فشل إعداد API الـ AI: {e}")
+
 def background_monitor():
     log("📡 بدأت عملية المراقبة في الخلفية...")
     while True:
@@ -43,33 +51,34 @@ def background_monitor():
                 response = ai_model.generate_content(prompt)
                 res_text = response.text
                 
-                if any(word in res_text for word in ["دخول", "هدف", "نقطة"]):
-                    bot.send_message(CHAT_ID, f"🎯 إشارة ذهب:\n\n{res_text}")
+                if any(word in res_text for word in ["دخول", "هدف", "نقطة", "Target", "Entry"]):
+                    bot.send_message(CHAT_ID, f"🎯 إشارة ذهب جديدة:\n\n{res_text}")
                     log("📩 تم إرسال إشارة لتليجرام")
             
-            # انتظر 5 دقائق قبل الفحص التالي (عشان ما نستهلك كوتا Gemini)
-            time.sleep(300) 
+            time.sleep(300) # فحص كل 5 دقائق
         except Exception as e:
             log(f"❌ خطأ في حلقة المراقبة: {e}")
-            time.sleep(60) # انتظر دقيقة وحاول مرة ثانية في حال الخطأ
+            time.sleep(60)
 
 @app.route('/')
 def home():
-    log("⏰ الكرون جوب وصل.. السيرفر مستيقظ")
-    return "Bot is LIVE and Monitoring...", 200
+    log("⏰ الكرون جوب (أو مستخدم) زار الرابط.. السيرفر صاحي")
+    return "Bot is LIVE and Monitoring Gold...", 200
 
 if __name__ == "__main__":
-    log("🚀 تشغيل السيرفر الاحترافي...")
-    
-    # تشغيل مراقب الذهب في "خيط" منفصل عن السيرفر
+    # إرسال رسالة تشغيل فورية للتأكد من التلجرام
+    try:
+        bot.send_message(CHAT_ID, "🚀 القناص استيقظ الآن! المراقبة مستمرة 24/5.")
+        log("✅ أرسلت رسالة ترحيب لتليجرام")
+    except Exception as e:
+        log(f"❌ فشل إرسال رسالة التلجرام: {e}")
+
     monitor_thread = threading.Thread(target=background_monitor)
-    monitor_thread.daemon = True # يغلق بمجرد إغلاق البرنامج
+    monitor_thread.daemon = True
     monitor_thread.start()
     
-    try:
-        bot.send_message(CHAT_ID, "🚀 القناص استيقظ وبدأ المراقبة المستمرة!")
-        # السيرفر هون بس وظيفته يرد على الكرون جوب عشان ريندر ما يطفي
-        serve(app, host='0.0.0.0', port=10000)
-    except Exception as e:
-        log(f"💥 فشل تشغيل السيرفر: {e}")
-        
+    # البورت 10000 هو الافتراضي لـ Render
+    port = int(os.environ.get("PORT", 10000))
+    log(f"🚀 تشغيل السيرفر على Port {port}...")
+    serve(app, host='0.0.0.0', port=port)
+    
