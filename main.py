@@ -6,18 +6,18 @@ import time
 from flask import Flask
 from threading import Thread
 
-# --- 1. إعداد السيرفر الوهمي (Keep-Alive) ---
+# --- 1. سيرفر خفيف جداً لإرضاء Cron-job ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "🎯 Gold Sniper Bot is Online and Active!"
+    # نص قصير جداً لتجنب خطأ "Output too large"
+    return "OK", 200
 
 def run_web_server():
-    # تشغيل السيرفر على المنفذ المطلوب من Render
     app.run(host='0.0.0.0', port=10000)
 
-# --- 2. إعداد المفاتيح والذكاء الاصطناعي ---
+# --- 2. الإعدادات ---
 GEMINI_KEY = os.environ.get('GEMINI_KEY')
 TELE_TOKEN = os.environ.get('TELE_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
@@ -26,65 +26,53 @@ genai.configure(api_key=GEMINI_KEY)
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 bot = telebot.TeleBot(TELE_TOKEN)
 
-# --- 3. منطق الاستراتيجية والتحليل ---
+# --- 3. منطق التحليل ---
 def get_sniper_signal():
     try:
-        # جلب بيانات الذهب 15 دقيقة
         gold = yf.Ticker("GC=F")
         df_15m = gold.history(period="2d", interval="15m")
+        if df_15m.empty: return "لا توجد بيانات"
         
-        if df_15m.empty:
-            return "تعذر جلب البيانات"
-
         current_price = df_15m['Close'].iloc[-1]
-        
-        # البرومبت الاحترافي لتحليل SMC
-        prompt = (
-            f"سعر الذهب الحالي: {current_price:.2f}. "
-            "قم بتحليل السوق بناءً على مفاهيم الأموال الذكية (SMC)، "
-            "ابحث عن مناطق العرض والطلب (Supply/Demand) وكسر الهيكل (MS) ومؤشر RSI. "
-            "إذا وجدت فرصة دخول قوية، أرسل: نقطة الدخول، الأهداف (TP)، ووقف الخسارة (SL). "
-            "إذا كان السوق متذبذب، قل: 'لا توجد إشارة واضحة حالياً'. "
-            "اجعل الرد باللغة العربية حصراً."
-        )
+        prompt = (f"السعر: {current_price:.2f}. حلل بنظام SMC و RSI. "
+                  "إذا وجدت صفقة قوية أعطني: دخول، هدف، وقف. "
+                  "إذا لا، قل 'انتظار'. بالعربية.")
         
         response = ai_model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"خطأ تقني: {str(e)}"
+        return f"خطأ: {e}"
 
-# --- 4. الدالة الأساسية لتشغيل البوت ---
+# --- 4. تشغيل المحرك ---
 def start_bot_logic():
-    print("🎯 بدء تشغيل محرك البوت...")
-    
-    # رسالة ترحيبية فورية عند التشغيل (للتأكد من الربط)
+    print("🎯 المحرك بدأ العمل...")
+    # إرسال رسالة لمرة واحدة عند التشغيل للتأكد
     try:
-        bot.send_message(CHAT_ID, "🚀 القناص استيقظ! تم الربط بنجاح وأنا الآن أراقب سوق الذهب (XAU/USD) لحظة بلحظة.")
-        print("✅ تم إرسال رسالة الترحيب بنجاح.")
-    except Exception as e:
-        print(f"❌ خطأ في إرسال رسالة الترحيب: {e}")
+        bot.send_message(CHAT_ID, "🚀 البوت استيقظ والربط سليم!")
+    except: pass
 
-    # حلقة الفحص المستمر
+    last_check = 0
     while True:
-        print("🔍 جاري فحص السوق بحثاً عن قناصات...")
-        signal = get_sniper_signal()
+        current_now = time.time()
         
-        # لا نرسل رسالة إلا إذا كان هناك تحليل حقيقي يحتوي على "دخول" أو "هدف"
-        if "دخول" in signal or "نقطة" in signal or "هدف" in signal:
-            bot.send_message(CHAT_ID, f"🎯 إشارة ذهب جديدة:\n\n{signal}")
-            print("📩 تم إرسال إشارة جديدة لتليجرام.")
-        else:
-            print("😴 لا توجد فرصة دخول قوية في الوقت الحالي.")
+        # طباعة "نبض" كل دقيقة في اللوجز لتطمئن
+        t_str = time.strftime("%H:%M:%S", time.localtime())
+        print(f"💓 نبض البوت: شغال تمام الساعة {t_str}")
 
-        # الانتظار 15 دقيقة
-        time.sleep(900)
+        # فحص السوق كل 15 دقيقة (900 ثانية)
+        if current_now - last_check > 900:
+            print("🔍 فحص السوق الآن...")
+            signal = get_sniper_signal()
+            print(f"📝 النتيجة: {signal[:30]}...")
+            
+            if any(word in signal for word in ["دخول", "نقطة", "هدف"]):
+                bot.send_message(CHAT_ID, f"🎯 إشارة جديدة:\n\n{signal}")
+            
+            last_check = current_now
+        
+        time.sleep(60) # ينام دقيقة ويعيد طباعة النبض
 
-# --- 5. نقطة الانطلاق ---
 if __name__ == "__main__":
-    # تشغيل محرك البوت في مسار (Thread) منفصل
-    bot_thread = Thread(target=start_bot_logic)
-    bot_thread.start()
-    
-    # تشغيل السيرفر الوهمي في المسار الرئيسي
-    print("🌐 تشغيل السيرفر الوهمي للعمل 24/7...")
+    Thread(target=start_bot_logic).start()
     run_web_server()
+    
