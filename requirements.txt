@@ -1,7 +1,5 @@
+flask
 yfinance
 pyTelegramBotAPI
 google-generativeai
-pandas
-flask
-requests
 waitress
